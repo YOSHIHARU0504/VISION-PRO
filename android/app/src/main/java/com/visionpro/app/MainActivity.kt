@@ -81,100 +81,162 @@ private suspend fun loadCatalog(type: String): Result<List<VideoItem>> = withCon
 @Composable
 fun VisionApp() {
     var section by remember { mutableStateOf("Inicio") }
-    var catalogType by remember { mutableStateOf("movie") }
+    var catalogType by remember { mutableStateOf<String?>("movie") }
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
 
     LaunchedEffect(catalogType) {
-        loading = true
-        error = null
-        val result = loadCatalog(catalogType)
-        result.onSuccess { videos = it }.onFailure {
+        val type = catalogType
+        if (type == null) {
             videos = emptyList()
-            error = it.message ?: "No se pudo conectar con el servidor"
+            loading = false
+            error = null
+        } else {
+            loading = true
+            error = null
+            val result = loadCatalog(type)
+            result.onSuccess { videos = it }.onFailure {
+                videos = emptyList()
+                error = it.message ?: "No se pudo conectar con el servidor"
+            }
+            loading = false
         }
-        loading = false
+    }
+
+    fun selectSection(item: String) {
+        section = item
+        catalogType = when (item) {
+            "TV en vivo" -> "live"
+            "Series" -> "series"
+            "Películas", "Inicio" -> "movie"
+            else -> null
+        }
     }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Navy, surface = Panel)) {
         if (playing != null) {
             VideoPlayerScreen(item = playing!!, onBack = { playing = null })
         } else {
-            Row(Modifier.fillMaxSize().background(Navy)) {
-                Column(
-                    Modifier.width(190.dp).fillMaxHeight().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    Text("VISION PRO", color = Accent, fontSize = 24.sp)
-                    Text("ENTRETENIMIENTO", color = Color.LightGray, fontSize = 10.sp)
-                    Spacer(Modifier.height(18.dp))
-                    listOf("Inicio", "TV en vivo", "Películas", "Series", "Mi espacio").forEach { item ->
-                        val selected = section == item
-                        Surface(
-                            color = if (selected) Accent.copy(alpha = .18f) else Color.Transparent,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                section = item
-                                catalogType = when (item) {
-                                    "TV en vivo" -> "live"
-                                    "Series" -> "series"
-                                    else -> "movie"
-                                }
-                            }.focusable()
-                        ) {
-                            Text(item, modifier = Modifier.padding(13.dp), color = if (selected) Accent else Color.White)
-                        }
-                    }
-                }
-                Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp)) {
-                    Text("Hola, bienvenido", color = Color.Gray, fontSize = 13.sp)
-                    Text(section, color = Color.White, fontSize = 32.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tu entretenimiento, en un solo lugar.", color = Color.LightGray)
-                    Spacer(Modifier.height(28.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (section == "Inicio") "Catálogo destacado" else "Contenido disponible", color = Color.White, fontSize = 20.sp)
-                        Spacer(Modifier.weight(1f))
-                        Text(if (loading) "Cargando…" else "${videos.size} títulos", color = Accent, fontSize = 12.sp)
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    when {
-                        loading -> CircularProgressIndicator(color = Accent)
-                        error != null -> Text("No se pudo cargar el catálogo: $error", color = Color(0xFFFFB4AB))
-                        videos.isEmpty() -> Column(
-                            Modifier.fillMaxWidth().padding(top = 22.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("Todavía no hay contenido publicado.", color = Color.White, fontSize = 18.sp)
-                            Text("Agrega canales o vídeos propios, de dominio público o con licencia desde tu catálogo autorizado.", color = Color.LightGray)
-                        }
-                        else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            items(videos, key = { it.id }) { video ->
+            BoxWithConstraints(Modifier.fillMaxSize().background(Navy)) {
+                val compact = maxWidth < 600.dp
+                if (compact) {
+                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        Text("VISION PRO", color = Accent, fontSize = 25.sp)
+                        Text("ENTRETENIMIENTO", color = Color.LightGray, fontSize = 10.sp)
+                        Spacer(Modifier.height(14.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listOf("Inicio", "TV en vivo", "Películas", "Series", "Mi espacio")) { item ->
+                                val selected = section == item
                                 Surface(
-                                    color = Panel,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.width(220.dp).height(156.dp).clickable {
-                                        if (video.streamUrl.startsWith("https://")) playing = video
-                                        else error = "Este título todavía no tiene un enlace HTTPS de reproducción."
-                                    }.focusable()
+                                    color = if (selected) Accent.copy(alpha = .2f) else Panel,
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.clickable { selectSection(item) }.focusable()
                                 ) {
-                                    Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.Bottom) {
-                                        Text(video.title, color = Color.White, fontSize = 17.sp, maxLines = 2)
-                                        if (video.year.isNotBlank()) Text(video.year, color = Accent, fontSize = 12.sp)
-                                        Text("Abrir contenido  ›", color = Color.LightGray, fontSize = 12.sp)
-                                    }
+                                    Text(item, color = if (selected) Accent else Color.White,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 13.sp)
                                 }
                             }
                         }
+                        Spacer(Modifier.height(24.dp))
+                        MainContent(section, videos, loading, error,
+                            onOpen = { video ->
+                                if (video.streamUrl.startsWith("https://")) playing = video
+                                else error = "Este título todavía no tiene un enlace HTTPS de reproducción."
+                            })
                     }
-                    Spacer(Modifier.height(24.dp))
-                    Text("VISION PRO · Android TV y móvil", color = Color.Gray, fontSize = 11.sp)
+                } else {
+                    Row(Modifier.fillMaxSize()) {
+                        Column(
+                            Modifier.width(210.dp).fillMaxHeight().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Text("VISION PRO", color = Accent, fontSize = 24.sp)
+                            Text("ENTRETENIMIENTO", color = Color.LightGray, fontSize = 10.sp)
+                            Spacer(Modifier.height(18.dp))
+                            listOf("Inicio", "TV en vivo", "Películas", "Series", "Mi espacio").forEach { item ->
+                                val selected = section == item
+                                Surface(
+                                    color = if (selected) Accent.copy(alpha = .18f) else Color.Transparent,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().clickable { selectSection(item) }.focusable()
+                                ) {
+                                    Text(item, modifier = Modifier.padding(13.dp),
+                                        color = if (selected) Accent else Color.White)
+                                }
+                            }
+                        }
+                        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp)) {
+                            MainContent(section, videos, loading, error,
+                                onOpen = { video ->
+                                    if (video.streamUrl.startsWith("https://")) playing = video
+                                    else error = "Este título todavía no tiene un enlace HTTPS de reproducción."
+                                })
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun MainContent(
+    section: String,
+    videos: List<VideoItem>,
+    loading: Boolean,
+    error: String?,
+    onOpen: (VideoItem) -> Unit
+) {
+    Text("Hola, bienvenido", color = Color.Gray, fontSize = 13.sp)
+    Text(section, color = Color.White, fontSize = 30.sp)
+    Spacer(Modifier.height(8.dp))
+    Text("Tu entretenimiento, en un solo lugar.", color = Color.LightGray)
+    Spacer(Modifier.height(24.dp))
+    if (section == "Mi espacio") {
+        Text("Tu espacio personal", color = Color.White, fontSize = 20.sp)
+        Spacer(Modifier.height(10.dp))
+        Text("Aquí estarán tus favoritos y tu historial de reproducción. Estas funciones están en preparación.",
+            color = Color.LightGray)
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (section == "Inicio") "Catálogo destacado" else "Contenido disponible",
+            color = Color.White, fontSize = 20.sp)
+        Spacer(Modifier.weight(1f))
+        Text(if (loading) "Cargando…" else "${videos.size} títulos", color = Accent, fontSize = 12.sp)
+    }
+    Spacer(Modifier.height(14.dp))
+    when {
+        loading -> CircularProgressIndicator(color = Accent)
+        error != null -> Text("No se pudo cargar el catálogo: $error", color = Color(0xFFFFB4AB))
+        videos.isEmpty() -> Column(
+            Modifier.fillMaxWidth().padding(top = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Todavía no hay contenido publicado.", color = Color.White, fontSize = 18.sp)
+            Text("El servidor está conectado. Cuando agregues canales o vídeos propios, de dominio público o con licencia, aparecerán aquí.",
+                color = Color.LightGray)
+        }
+        else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(videos, key = { it.id }) { video ->
+                Surface(
+                    color = Panel,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.width(220.dp).height(156.dp).clickable { onOpen(video) }.focusable()
+                ) {
+                    Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.Bottom) {
+                        Text(video.title, color = Color.White, fontSize = 17.sp, maxLines = 2)
+                        if (video.year.isNotBlank()) Text(video.year, color = Accent, fontSize = 12.sp)
+                        Text("Abrir contenido  ›", color = Color.LightGray, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(24.dp))
+    Text("VISION PRO · Android TV y móvil", color = Color.Gray, fontSize = 11.sp)
 }
 
 @Composable
@@ -189,11 +251,8 @@ private fun VideoPlayerScreen(item: VideoItem, onBack: () -> Unit) {
     }
     DisposableEffect(player) { onDispose { player.release() } }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Text(
-            "‹  VOLVER     ${item.title}",
-            color = Color.White,
-            modifier = Modifier.clickable(onClick = onBack).focusable().padding(16.dp)
-        )
+        Text("‹  VOLVER     ${item.title}", color = Color.White,
+            modifier = Modifier.clickable(onClick = onBack).focusable().padding(16.dp))
         AndroidView(
             factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true } },
             update = { it.player = player },
