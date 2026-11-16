@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -313,8 +314,7 @@ private fun HeroPanel(compact: Boolean) {
                 Text("EXPERIENCIA PREMIUM", color = Color(0xFFFFA1AA), fontSize = 9.sp,
                     fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
             }
-            Text("Tu próxima historia
-comienza aquí.", color = Color.White,
+            Text("Tu próxima historia\ncomienza aquí.", color = Color.White,
                 fontSize = if (compact) 23.sp else 31.sp, fontWeight = FontWeight.ExtraBold,
                 lineHeight = if (compact) 27.sp else 36.sp)
             Text("Películas, series y televisión en una sola experiencia.",
