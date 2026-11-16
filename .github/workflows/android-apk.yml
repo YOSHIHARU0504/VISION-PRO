@@ -27,6 +27,7 @@ jobs:
         with:
           cmdline-tools-version: 12266719
           accept-android-sdk-licenses: false
+          packages: platform-tools
       - name: Install Android SDK packages
         shell: bash
         run: |
