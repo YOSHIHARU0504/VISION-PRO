@@ -230,8 +230,7 @@ private fun Hero(section: String, compact: Boolean, featured: VideoItem?, onOpen
                 Spacer(Modifier.width(8.dp))
                 Text("VISION PRO ORIGINAL EXPERIENCE", color = Color(0xFFFFA1AC), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             }
-            Text(if (featured != null) featured.title else "Tu entretenimiento.
-A tu manera.", color = White,
+            Text(if (featured != null) featured.title else "Tu entretenimiento.\\nA tu manera.", color = White,
                 fontSize = if (compact) 27.sp else 39.sp, fontWeight = FontWeight.Black, lineHeight = if (compact) 31.sp else 44.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(if (featured != null) featured.description.ifBlank { "Descubre esta película en VISION PRO." } else "Películas, series y televisión en una experiencia creada para ti.",
                 color = Color(0xFFD4D5DC), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
