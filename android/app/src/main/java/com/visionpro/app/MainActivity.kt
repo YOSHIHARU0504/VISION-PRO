@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,8 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -37,19 +44,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val API_BASE = "https://vision-pro-api-lexp.onrender.com"
-private val Void = Color(0xFF08090D)
-private val SurfaceDark = Color(0xFF14151D)
-private val SurfaceRaised = Color(0xFF1D1E28)
-private val NeonRed = Color(0xFFFF3048)
-private val Muted = Color(0xFF9A9BA8)
+private val Ink = Color(0xFF08090D)
+private val Panel = Color(0xFF12141B)
+private val Panel2 = Color(0xFF1B1E28)
+private val Red = Color(0xFFFF3048)
+private val White = Color(0xFFF7F7FA)
+private val Gray = Color(0xFF9A9EAA)
 
 data class VideoItem(
-    val id: String,
-    val title: String,
-    val description: String,
-    val posterUrl: String,
-    val streamUrl: String,
-    val year: String
+    val id: String, val title: String, val description: String,
+    val posterUrl: String, val backdropUrl: String, val streamUrl: String, val year: String
 )
 
 class MainActivity : ComponentActivity() {
@@ -62,26 +66,19 @@ class MainActivity : ComponentActivity() {
 private suspend fun loadCatalog(type: String): Result<List<VideoItem>> = withContext(Dispatchers.IO) {
     runCatching {
         val connection = (URL("$API_BASE/api/catalog/$type").openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12000
-            readTimeout = 12000
+            requestMethod = "GET"; connectTimeout = 15000; readTimeout = 20000
             setRequestProperty("Accept", "application/json")
         }
         try {
-            if (connection.responseCode !in 200..299) error("API respondió ${connection.responseCode}")
+            if (connection.responseCode !in 200..299) error("Servidor: HTTP ${connection.responseCode}")
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val array = JSONObject(body).optJSONArray("items") ?: return@runCatching emptyList()
             buildList {
                 for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    add(VideoItem(
-                        id = item.optString("id"),
-                        title = item.optString("title", "Sin título"),
-                        description = item.optString("description"),
-                        posterUrl = item.optString("poster_url"),
-                        streamUrl = item.optString("stream_url"),
-                        year = item.optString("release_year")
-                    ))
+                    val v = array.optJSONObject(i) ?: continue
+                    add(VideoItem(v.optString("id"), v.optString("title", "Sin título"),
+                        v.optString("description"), v.optString("poster_url"),
+                        v.optString("backdrop_url"), v.optString("stream_url"), v.optString("release_year")))
                 }
             }
         } finally { connection.disconnect() }
@@ -90,83 +87,50 @@ private suspend fun loadCatalog(type: String): Result<List<VideoItem>> = withCon
 
 @Composable
 fun VisionApp() {
-    var section by remember { mutableStateOf("Inicio") }
-    var catalogType by remember { mutableStateOf<String?>("movie") }
-    var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var section by remember { mutableStateOf("INICIO") }
+    var catalogType by remember { mutableStateOf("movie") }
+    var videos by remember { mutableStateOf(emptyList<VideoItem>()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
 
     LaunchedEffect(catalogType) {
-        val type = catalogType
-        if (type == null) {
-            videos = emptyList()
-            loading = false
-            error = null
-        } else {
-            loading = true
-            error = null
-            val result = loadCatalog(type)
-            result.onSuccess { videos = it }.onFailure {
-                videos = emptyList()
-                error = it.message ?: "No se pudo conectar con el servidor"
-            }
-            loading = false
-        }
+        loading = true; error = null
+        val result = loadCatalog(catalogType)
+        result.onSuccess { videos = it }.onFailure { videos = emptyList(); error = it.message ?: "No se pudo conectar" }
+        loading = false
     }
 
-    fun choose(item: String) {
-        section = item
-        catalogType = when (item) {
-            "TV EN VIVO" -> "live"
-            "SERIES" -> "series"
-            "PELÍCULAS", "INICIO" -> "movie"
-            else -> null
-        }
+    fun navigate(label: String) {
+        section = label
+        catalogType = when (label) { "TV EN VIVO" -> "live"; "SERIES" -> "series"; else -> "movie" }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(
-        primary = NeonRed, secondary = Color(0xFFFF7180),
-        background = Void, surface = SurfaceDark, onBackground = Color.White
-    )) {
-        if (playing != null) {
-            VideoPlayerScreen(item = playing!!, onBack = { playing = null })
-        } else {
-            BoxWithConstraints(Modifier.fillMaxSize().background(Void)) {
-                val compact = maxWidth < 650.dp
-                if (compact) {
-                    Column(Modifier.fillMaxSize()) {
-                        Header(compact = true)
-                        NavigationBar(section, ::choose, compact = true)
-                        Column(
-                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)
-                        ) {
-                            HomeContent(section, videos, loading, error, compact = true,
-                                onOpen = { video ->
-                                    if (video.streamUrl.startsWith("https://")) playing = video
-                                    else error = "Este contenido todavía no tiene un enlace HTTPS válido."
-                                })
-                        }
+    MaterialTheme(colorScheme = darkColorScheme(primary = Red, secondary = Color(0xFFFF7584), background = Ink, surface = Panel)) {
+        if (playing != null) PlayerScreen(playing!!, { playing = null })
+        else BoxWithConstraints(Modifier.fillMaxSize().background(Ink)) {
+            val compact = maxWidth < 700.dp
+            if (compact) {
+                Column(Modifier.fillMaxSize()) {
+                    TopBar()
+                    Navigation(section, ::navigate, true)
+                    CatalogBody(section, videos, loading, error, true, { playing = it }, { 
+                        loading = true
+                    }, Modifier.weight(1f))
+                }
+            } else {
+                Row(Modifier.fillMaxSize()) {
+                    Column(Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF0D0F15)).padding(22.dp)) {
+                        Brand()
+                        Spacer(Modifier.height(44.dp))
+                        Navigation(section, ::navigate, false)
+                        Spacer(Modifier.weight(1f))
+                        Text("CINE • SERIES • LIVE", color = Gray, fontSize = 9.sp, letterSpacing = 1.5.sp)
+                        Text("VERSION 1.1 BETA", color = Red, fontSize = 9.sp)
                     }
-                } else {
-                    Row(Modifier.fillMaxSize()) {
-                        Column(
-                            Modifier.width(238.dp).fillMaxHeight()
-                                .background(Color(0xFF0D0E14)).padding(20.dp)
-                        ) {
-                            Header(compact = false)
-                            Spacer(Modifier.height(38.dp))
-                            NavigationBar(section, ::choose, compact = false)
-                            Spacer(Modifier.weight(1f))
-                            Text("VISION PRO  •  BETA", color = Muted, fontSize = 10.sp, letterSpacing = 1.4.sp)
-                        }
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                            HomeContent(section, videos, loading, error, compact = false,
-                                onOpen = { video ->
-                                    if (video.streamUrl.startsWith("https://")) playing = video
-                                    else error = "Este contenido todavía no tiene un enlace HTTPS válido."
-                                })
-                        }
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        TopBar(showBrand = false)
+                        CatalogBody(section, videos, loading, error, false, { playing = it }, { loading = true }, Modifier.weight(1f))
                     }
                 }
             }
@@ -175,208 +139,165 @@ fun VisionApp() {
 }
 
 @Composable
-private fun Header(compact: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(horizontal = if (compact) 18.dp else 0.dp, vertical = 18.dp)) {
-        Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                .background(Brush.linearGradient(listOf(NeonRed, Color(0xFF8A1025)))),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("V", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
+private fun Brand() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(Red, Color(0xFF8D1028)))), contentAlignment = Alignment.Center) {
+            Text("VP", color = White, fontSize = 17.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
         }
-        Spacer(Modifier.width(11.dp))
+        Spacer(Modifier.width(12.dp))
         Column {
-            Text("VISION", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text("PRO  /  STREAMING", color = NeonRed, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-        }
-        if (compact) {
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.size(34.dp).clip(CircleShape).background(SurfaceRaised), contentAlignment = Alignment.Center) {
-                Text("⌕", color = Color.White, fontSize = 23.sp)
-            }
+            Text("VISION PRO", color = White, fontSize = 17.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+            Text("ENTERTAINMENT", color = Red, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.2.sp)
         }
     }
 }
 
 @Composable
-private fun NavigationBar(section: String, onSelect: (String) -> Unit, compact: Boolean) {
-    val entries = listOf("INICIO", "TV EN VIVO", "PELÍCULAS", "SERIES", "MI ESPACIO")
-    if (compact) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            entries.forEach { item -> NavPill(item, section == item, onSelect) }
-        }
-    } else {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            entries.forEach { item -> NavPill(item, section == item, onSelect, wide = true) }
+private fun TopBar(showBrand: Boolean = true) {
+    Row(Modifier.fillMaxWidth().background(Ink).padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (showBrand) Brand()
+        else Text("DESCUBRE", color = White, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Spacer(Modifier.weight(1f))
+        Icon(Icons.Default.Search, contentDescription = "Buscar", tint = Gray, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(34.dp).clip(CircleShape).background(Panel2), contentAlignment = Alignment.Center) {
+            Text("Y", color = White, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun NavPill(item: String, selected: Boolean, onSelect: (String) -> Unit, wide: Boolean = false) {
-    Row(
-        Modifier.then(if (wide) Modifier.fillMaxWidth() else Modifier)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) NeonRed.copy(alpha = .15f) else Color.Transparent)
-            .clickable { onSelect(item) }.focusable()
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (selected) Box(Modifier.width(3.dp).height(18.dp).clip(CircleShape).background(NeonRed))
-        if (selected) Spacer(Modifier.width(10.dp))
-        Text(item, color = if (selected) Color.White else Muted,
-            fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            letterSpacing = 1.sp)
+private fun Navigation(section: String, onSelect: (String) -> Unit, compact: Boolean) {
+    val items = listOf("INICIO", "TV EN VIVO", "PELÍCULAS", "SERIES", "MI ESPACIO")
+    if (compact) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { label -> NavItem(label, section == label, onSelect, false) }
+    } else Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        items.forEach { label -> NavItem(label, section == label, onSelect, true) }
     }
 }
 
 @Composable
-private fun HomeContent(
-    section: String,
-    videos: List<VideoItem>,
-    loading: Boolean,
-    error: String?,
-    compact: Boolean,
-    onOpen: (VideoItem) -> Unit
+private fun NavItem(label: String, selected: Boolean, onSelect: (String) -> Unit, wide: Boolean) {
+    Row(Modifier.then(if (wide) Modifier.fillMaxWidth() else Modifier).clip(RoundedCornerShape(11.dp))
+        .background(if (selected) Red.copy(alpha = .16f) else Color.Transparent)
+        .clickable { onSelect(label) }.focusable().padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        if (selected) { Box(Modifier.width(3.dp).height(18.dp).clip(CircleShape).background(Red)); Spacer(Modifier.width(10.dp)) }
+        Text(label, color = if (selected) White else Gray, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, letterSpacing = 1.sp)
+    }
+}
+
+@Composable
+private fun CatalogBody(
+    section: String, videos: List<VideoItem>, loading: Boolean, error: String?, compact: Boolean,
+    onOpen: (VideoItem) -> Unit, onRetry: () -> Unit, modifier: Modifier = Modifier
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = if (compact) 17.dp else 34.dp, vertical = 24.dp)) {
-        Text("TU UNIVERSO DE ENTRETENIMIENTO", color = NeonRed, fontSize = 10.sp,
-            fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-        Spacer(Modifier.height(8.dp))
-        Text(if (section == "INICIO") "Explora. Disfruta. Repite." else section,
-            color = Color.White, fontSize = if (compact) 27.sp else 35.sp,
-            fontWeight = FontWeight.ExtraBold, letterSpacing = (-.7).sp)
-        Spacer(Modifier.height(20.dp))
-
-        if (section == "MI ESPACIO") {
-            EmptyPanel("TU ESPACIO PERSONAL", "Tus favoritos y tu historial aparecerán aquí cuando estas funciones estén habilitadas.")
-            return@Column
-        }
-
-        if (section == "INICIO") {
-            HeroPanel(compact)
-            Spacer(Modifier.height(28.dp))
-        }
-
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = if (compact) 16.dp else 34.dp, vertical = 16.dp)) {
+        Hero(section, compact, videos.firstOrNull(), onOpen)
+        Spacer(Modifier.height(25.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (section == "INICIO") "Recomendado para ti" else "Catálogo",
-                    color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("Contenido disponible en VISION PRO", color = Muted, fontSize = 11.sp)
+                Text(when (section) { "TV EN VIVO" -> "Canales en vivo"; "SERIES" -> "Series"; "MI ESPACIO" -> "Tu biblioteca"; else -> "Películas para descubrir" },
+                    color = White, fontSize = if (compact) 19.sp else 23.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Historias seleccionadas para ti", color = Gray, fontSize = 11.sp)
             }
-            Box(Modifier.clip(RoundedCornerShape(20.dp)).background(NeonRed.copy(alpha = .13f)).padding(horizontal = 11.dp, vertical = 7.dp)) {
-                Text(if (loading) "CARGANDO" else "${videos.size} TÍTULOS",
-                    color = NeonRed, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            }
+            Text(if (loading) "CARGANDO" else "${videos.size} TÍTULOS", color = Red, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         }
-        Spacer(Modifier.height(15.dp))
+        Spacer(Modifier.height(14.dp))
         when {
-            loading -> Box(Modifier.fillMaxWidth().height(130.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = NeonRed)
-            }
-            error != null -> EmptyPanel("NO SE PUDO CARGAR", error)
-            videos.isEmpty() -> EmptyPanel(
-                "LA PANTALLA ESTÁ LISTA",
-                "Todavía no hay contenido publicado. Cuando agregues canales o vídeos propios, de dominio público o con licencia, aparecerán aquí."
-            )
-            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                items(videos, key = { it.id }) { video -> VideoCard(video, onOpen) }
+            loading -> Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Red) }
+            error != null -> InfoPanel("No pudimos conectar", error, "REINTENTAR", onRetry)
+            videos.isEmpty() -> InfoPanel("Estamos preparando tu catálogo", "Los títulos publicados aparecerán aquí.", null, {})
+            else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
+                items(videos, key = { it.id }) { item -> PosterCard(item, onOpen) }
             }
         }
-        Spacer(Modifier.height(28.dp))
-        Text("DISEÑADO PARA TU PANTALLA", color = Muted, fontSize = 9.sp, letterSpacing = 1.8.sp)
+        Spacer(Modifier.height(25.dp))
+        Text("VISION PRO  •  CONTENIDO CON LICENCIA", color = Gray, fontSize = 9.sp, letterSpacing = 1.4.sp)
     }
 }
 
 @Composable
-private fun HeroPanel(compact: Boolean) {
-    Box(
-        Modifier.fillMaxWidth().height(if (compact) 205.dp else 270.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF42101B), Color(0xFF1B1018), Color(0xFF11131C))))
-    ) {
-        Box(Modifier.fillMaxSize().background(
-            Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .05f), Color.Black.copy(alpha = .72f)))
-        ))
-        Column(
-            Modifier.align(Alignment.CenterStart).padding(if (compact) 19.dp else 30.dp)
-                .fillMaxWidth(.82f),
-            verticalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
+private fun Hero(section: String, compact: Boolean, featured: VideoItem?, onOpen: (VideoItem) -> Unit) {
+    Box(Modifier.fillMaxWidth().height(if (compact) 235.dp else 330.dp).clip(RoundedCornerShape(24.dp))
+        .background(Brush.linearGradient(listOf(Color(0xFF65182A), Color(0xFF25121C), Color(0xFF11141D))))) {
+        if (featured?.backdropUrl?.startsWith("https://") == true) {
+            AsyncImage(model = featured.backdropUrl, contentDescription = null, modifier = Modifier.fillMaxSize())
+        }
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xFF090A0F).copy(alpha=.08f), Color(0xFF090A0F).copy(alpha=.94f)))))
+        Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(.88f).padding(if (compact) 20.dp else 34.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(NeonRed))
-                Spacer(Modifier.width(7.dp))
-                Text("EXPERIENCIA PREMIUM", color = Color(0xFFFFA1AA), fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+                Box(Modifier.size(7.dp).clip(CircleShape).background(Red))
+                Spacer(Modifier.width(8.dp))
+                Text("VISION PRO ORIGINAL EXPERIENCE", color = Color(0xFFFFA1AC), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             }
-            Text("Tu próxima historia\ncomienza aquí.", color = Color.White,
-                fontSize = if (compact) 23.sp else 31.sp, fontWeight = FontWeight.ExtraBold,
-                lineHeight = if (compact) 27.sp else 36.sp)
-            Text("Películas, series y televisión en una sola experiencia.",
-                color = Color(0xFFD5D2D5), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(
-                Modifier.clip(RoundedCornerShape(9.dp))
-                    .background(NeonRed).padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("DESCUBRIR  ›", color = Color.White, fontSize = 9.sp,
-                    fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text(if (featured != null) featured.title else "Tu entretenimiento.
+A tu manera.", color = White,
+                fontSize = if (compact) 27.sp else 39.sp, fontWeight = FontWeight.Black, lineHeight = if (compact) 31.sp else 44.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(if (featured != null) featured.description.ifBlank { "Descubre esta película en VISION PRO." } else "Películas, series y televisión en una experiencia creada para ti.",
+                color = Color(0xFFD4D5DC), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.clip(RoundedCornerShape(10.dp)).background(Red).clickable(enabled = featured != null) { featured?.let(onOpen) }.focusable()
+                .padding(horizontal = 16.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = White, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (featured != null) "REPRODUCIR" else "EXPLORAR CATÁLOGO", color = White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
             }
         }
-        Text("VP", Modifier.align(Alignment.BottomEnd).padding(15.dp),
-            color = Color.White.copy(alpha = .07f), fontSize = if (compact) 52.sp else 76.sp,
-            fontWeight = FontWeight.Black, letterSpacing = (-5).sp)
+        Text("VP", Modifier.align(Alignment.BottomEnd).padding(16.dp), color = White.copy(alpha=.08f), fontSize = 72.sp, fontWeight = FontWeight.Black, letterSpacing = (-7).sp)
     }
 }
 
 @Composable
-private fun VideoCard(video: VideoItem, onOpen: (VideoItem) -> Unit) {
-    Column(
-        Modifier.width(154.dp).clip(RoundedCornerShape(14.dp))
-            .background(SurfaceDark).clickable { onOpen(video) }.focusable()
-    ) {
-        Box(
-            Modifier.fillMaxWidth().height(112.dp)
-                .background(Brush.linearGradient(listOf(Color(0xFF40131D), Color(0xFF20212C)))),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("▶", color = Color.White.copy(alpha = .75f), fontSize = 28.sp)
-            Box(Modifier.align(Alignment.TopStart).padding(8.dp)
-                .clip(RoundedCornerShape(5.dp)).background(NeonRed).padding(horizontal = 6.dp, vertical = 3.dp)) {
-                Text("VISION", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+private fun PosterCard(item: VideoItem, onOpen: (VideoItem) -> Unit) {
+    Column(Modifier.width(160.dp).clip(RoundedCornerShape(15.dp)).background(Panel).clickable { onOpen(item) }.focusable()) {
+        Box(Modifier.fillMaxWidth().height(205.dp).background(Brush.linearGradient(listOf(Color(0xFF551728), Panel2))), contentAlignment = Alignment.Center) {
+            if (item.posterUrl.startsWith("https://")) AsyncImage(model = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
+            else {
+                Text("VP", color = White.copy(alpha=.16f), fontSize = 48.sp, fontWeight = FontWeight.Black)
+                Box(Modifier.size(42.dp).clip(CircleShape).background(Red.copy(alpha=.95f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Reproducir", tint = White, modifier = Modifier.size(26.dp))
+                }
+            }
+            Box(Modifier.align(Alignment.TopStart).padding(9.dp).clip(RoundedCornerShape(5.dp)).background(Red).padding(horizontal=7.dp, vertical=4.dp)) {
+                Text("PELÍCULA", color = White, fontSize = 7.sp, fontWeight = FontWeight.Black, letterSpacing=.8.sp)
             }
         }
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(video.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(if (video.year.isNotBlank()) video.year else "VER DETALLES",
-                color = Muted, fontSize = 9.sp, letterSpacing = .8.sp)
+            Text(item.title, color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(if (item.year.isNotBlank()) item.year else "DISPONIBLE AHORA", color = Gray, fontSize = 9.sp)
         }
     }
 }
 
 @Composable
-private fun EmptyPanel(title: String, message: String) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-            .background(SurfaceDark).padding(19.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Text(message, color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+private fun InfoPanel(title: String, message: String, action: String?, onAction: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(Panel).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(message, color = Gray, fontSize = 12.sp, lineHeight = 18.sp)
+        if (action != null) Text(action, color = Red, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.clickable(onClick = onAction).focusable().padding(top=5.dp))
     }
 }
 
 @Composable
-private fun VideoPlayerScreen(item: VideoItem, onBack: () -> Unit) {
+private fun PlayerScreen(item: VideoItem, onBack: () -> Unit) {
     val context = LocalContext.current
+    var playerError by remember { mutableStateOf<String?>(null) }
+    var playbackState by remember { mutableStateOf("Conectando con el servidor…") }
     val player = remember(item.streamUrl) {
         ExoPlayer.Builder(context).build().apply {
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(state: Int) {
+                    playbackState = when (state) {
+                        Player.STATE_BUFFERING -> "Cargando vídeo…"
+                        Player.STATE_READY -> "Reproduciendo"
+                        Player.STATE_ENDED -> "La película terminó"
+                        else -> "Preparando reproducción…"
+                    }
+                }
+                override fun onPlayerError(error: PlaybackException) {
+                    playerError = "No se pudo reproducir: ${error.errorCodeName}. Comprueba tu conexión o el enlace del vídeo."
+                }
+            })
             setMediaItem(MediaItem.fromUri(item.streamUrl))
             prepare()
             playWhenReady = true
@@ -384,12 +305,16 @@ private fun VideoPlayerScreen(item: VideoItem, onBack: () -> Unit) {
     }
     DisposableEffect(player) { onDispose { player.release() } }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Text("‹  VOLVER     ${item.title}", color = Color.White,
-            modifier = Modifier.clickable(onClick = onBack).focusable().padding(16.dp))
-        AndroidView(
-            factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true } },
-            update = { it.player = player },
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
+        Row(Modifier.fillMaxWidth().background(Panel).clickable(onClick = onBack).padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = White)
+            Spacer(Modifier.width(12.dp))
+            Text(item.title, color = White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true; keepScreenOn = true } },
+                update = { it.player = player }, modifier = Modifier.fillMaxSize())
+            if (playerError != null) InfoPanel("Error de reproducción", playerError!!, "VOLVER AL CATÁLOGO", onBack)
+        }
+        if (playerError == null) Text(playbackState, color = Gray, fontSize = 11.sp, modifier = Modifier.padding(12.dp))
     }
 }
