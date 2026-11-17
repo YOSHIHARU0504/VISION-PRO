@@ -93,8 +93,9 @@ fun VisionApp() {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(catalogType) {
+    LaunchedEffect(catalogType, refresh) {
         loading = true; error = null
         val result = loadCatalog(catalogType)
         result.onSuccess { videos = it }.onFailure { videos = emptyList(); error = it.message ?: "No se pudo conectar" }
@@ -114,9 +115,7 @@ fun VisionApp() {
                 Column(Modifier.fillMaxSize()) {
                     TopBar()
                     Navigation(section, ::navigate, true)
-                    CatalogBody(section, videos, loading, error, true, { playing = it }, { 
-                        loading = true
-                    }, Modifier.weight(1f))
+                    CatalogBody(section, videos, loading, error, true, { playing = it }, { refresh++ }, Modifier.weight(1f))
                 }
             } else {
                 Row(Modifier.fillMaxSize()) {
@@ -130,7 +129,7 @@ fun VisionApp() {
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         TopBar(showBrand = false)
-                        CatalogBody(section, videos, loading, error, false, { playing = it }, { loading = true }, Modifier.weight(1f))
+                        CatalogBody(section, videos, loading, error, false, { playing = it }, { refresh++ }, Modifier.weight(1f))
                     }
                 }
             }
